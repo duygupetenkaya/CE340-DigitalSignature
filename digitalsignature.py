@@ -1,110 +1,160 @@
+## Author: Elif Duygu PETENKAYA
+## CE 340 - Cryptography and Network Security by Assoc. Prof. Suleyman Kondakci
+## Project 3 - Implementation of Secure Authentication Protocol
+
 import hashlib
-import sage
-from past.builtins import raw_input
+import random as rand
+from operator import xor
+
+from urllib3.connectionpool import xrange
 
 
-def eucalg(a, b):
-    # make a the bigger one and b the lesser one
-    swapped = False
-    if a < b:
-        a, b = b, a
-        swapped = True
-    # ca and cb store current a and b in form of
-    # coefficients with initial a and b
-    # a' = ca[0] * a + ca[1] * b
-    # b' = cb[0] * a + cb[1] * b
-    ca = (1, 0)
-    cb = (0, 1)
+########## helper functions ##########
+def gcd(a, b):
     while b != 0:
-        # k denotes how many times number b
-        # can be substracted from a
-        k = a // b
-        # a  <- b
-        # b  <- a - b * k
-        # ca <- cb
-        # cb <- (ca[0] - k * cb[0], ca[1] - k * cb[1])
-        a, b, ca, cb = b, a - b * k, cb, (ca[0] - k * cb[0], ca[1] - k * cb[1])
-    if swapped:
-        return (ca[1], ca[0])
-    else:
-        return ca
+        a, b = b, a % b
+    return a
 
 
-def keysgen(p, q):
-    n = p * q
-    lambda_n = (p - 1) * (q - 1)
-    e = 35537
-    d = eucalg(e, lambda_n)[0]
-    if d < 0: d += lambda_n
-    # both private and public key must have n stored with them
-    print("Private key:", d, "Public key:", e, "n:", n)
-    return d, e, n
+def multiplicative_inverse(e, r):
+    for i in range(r):
+        if (e * i) % r == 1:
+            return i
 
 
-# Source Side #
+def is_prime(num):
+    if num == 2:
+        return True
+    if num < 2 or num % 2 == 0:
+        return False
+    for n in xrange(3, int(num ** 0.5) + 2, 2):
+        if num % n == 0:
+            return False
+    return True
 
-# write a function named sourceXOR that takes private key of the source and public key of the destination
-# and returns the XOR of the two keys
+
+def conc(X, Y):
+    return X, "EDP", Y
+
+
+###################### Source Side ######################
+
+# sessionKeyGen that generate a large integer denoting the session key. The key K_s must have at least 10 digits and
+# has n value of the product of the two prime numbers p and q
+def sessionKeyGen(n):
+    return rand.randrange(10 ** 10, 10 ** 11), n
+
+
 def XOR(privateKey, publicKey):
-    return sage.xor(privateKey, publicKey)
+    return xor(privateKey[0], publicKey[0])
 
 
-# write a function named hashFunc that computes and returns the hash value of the source node
-def hashFunc(plaintext):
-    return hashlib.sha256(plaintext.encode('utf-8')).hexdigest()
+def generate_keypair(p, q):
+    if not (is_prime(p) and is_prime(q)):
+        raise ValueError('Both numbers must be prime.')
+    elif p == q:
+        raise ValueError('p and q cannot be equal')
+        # n = pq
+    n = p * q
+
+    # Phi is the totient of n
+    phi = (p - 1) * (q - 1)
+
+    # Choose an integer e such that e and phi(n) are coprime
+    e = rand.randrange(1, phi)
+
+    # Use Euclid's Algorithm to verify that e and phi(n) are comprime
+    g = gcd(e, phi)
+    while g != 1:
+        e = rand.randrange(1, phi)
+        g = gcd(e, phi)
+
+    # Use Extended Euclid's Algorithm to generate the private key
+    d = multiplicative_inverse(e, phi)
+
+    # Return public and private keypair
+    # Public key is (e, n) and private key is (d, n)
+    return ((e, n), (d, n))
+
+
+def hashFunc(text):
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
 # write a function named encryptSource that encrypts and returns the hash value,
 # which is the signature (S) of the source. Note that the encryption is symmetric key
-def encrypt(pk,n,  plaintext):
-    # Unpack the key into it's components
-    key = pk
+def encrypt(plaintext, pub):
+    key, n = pub
     # Convert each letter in the plaintext to numbers based on the character using a^b mod m
-    cipher = [(ord(char) ** key) % n for char in plaintext]
+    for char in (plaintext):
+        cipher = [(ord(ch) ** key) % n for ch in char]
     # Return the array of bytes
     return cipher
 
 
-def conc(X, Y):
-    return X + "EDP" + Y
+# Z=signID(conc [E(conc(ID,S),KS)), E(KS, KUDST)]).
+def signID(idText, S, KS, dstPublic):
+    sessionKeyEnc = encrypt(conc(idText, S), KS)
+    encrypted = encrypt(KS, dstPublic)
+
+    Z = conc(sessionKeyEnc, encrypted)
+    return Z
 
 
-# write a function named sessionKeyGen that generate a large integer denoting
-# the session key. The key K_s must have at least 10 digits
-def sessionKeyGen():
-    return sage.random_integer(10)
+###################### Destination Side ######################
 
-
-def signID(ID, S, K_s, KU_dst):
-    return conc(encrypt(K_s, conc(ID, S)), encrypt(KU_dst, K_s))
-
-
-# write a function named send that takes the return value of signID and dest_IP as input and sends the signed value
-# to the destination, if send process is successful it will return true, otherwise it will return false
-def send(signedValue, dest_IP):
-    return sage.send(signedValue, dest_IP)
-
-
-# Destination Side #
-
-
-def decrypt(pk,n, ciphertext):
-    # Unpack the key into its components
-    key = pk
+def decrypt(ciphertext, priv):
+    key, n = priv
     # Generate the plaintext based on the ciphertext and key using a^b mod m
-    plain = [chr((char ** key) % n) for char in ciphertext]
+    plain = [chr((int(char) ** key) % n) for char in ciphertext]
     # Return the array of bytes as a string
     return ''.join(plain)
 
 
 if __name__ == '__main__':
-    print("Implementation of Secure Authentication Protocol")
-    p = int(raw_input("Enter a prime number (17, 19, 23, etc): "))
-    q = int(raw_input("Enter another prime number (Not one you entered above): "))
+    print("Implementation of Secure Authentication Protocol by EDP")
+
+    p = int(input("Enter a prime number (17, 19, 23, etc): "))
+    q = int(input("Enter another prime number (Not one you entered above): "))
+
     print("Generating your public/private keypairs now . . .")
-    public, private,n = keysgen(p, q)
-    print("Your public key is ", public, " and your private key is ", private, "and n is ", n)
 
+    srcPublic, srcPrivate = generate_keypair(p, q)
+    print("Source public key is ", srcPublic, " and Source private key is ", srcPrivate)
 
+    dstPublic, dstPrivate = generate_keypair(p, q)
+    print("Destination public key is ", dstPublic, " and Destination private key is ", dstPrivate)
 
+    print("Encrypting your message now . . .")
+    idText = ""
+    with open('ID.txt', 'r') as f:
+        for line in f:
+            idText += line.strip() + "/EDP/"
+    print("ID is: ", idText)
 
+    kH = XOR(srcPrivate, dstPublic), srcPublic[1]
+    print("Kh for source is: ", kH)
+
+    hashedText = hashFunc(idText)
+    print("Hashed ID is: ", hashedText)
+
+    encryptedHashedText = encrypt(hashedText, kH)
+    encryptedHashedTextStr = " ".join(str(encryptedHashedText))
+    S = conc(idText, encryptedHashedTextStr)
+
+    print("Hashed and encrypted ID is: ", S)
+
+    print("Session is generating now... Please wait for the session key to be generated.\n")
+    KS = sessionKeyGen(dstPublic[1])
+    print("Session key is: ", KS)
+
+    print("Signing now... Please wait for the signature to be generated.\n")
+
+    sessionKeyEnc = encrypt(conc(idText, S), KS)
+    encrypted = encrypt(KS, dstPublic)
+
+    print(sessionKeyEnc)
+    print(encrypted)
+    Z = conc(sessionKeyEnc, encrypted)
+    print(Z)
+    print("Signature is: ", str(Z))
